@@ -1,0 +1,25 @@
+# Crustaison Default Configuration
+# See: https://github.com/crustaison/crustaison
+
+[cognition]
+model = "minimax"
+max_tokens = 8192
+temperature = 0.7
+
+[gateway]
+port = 8080
+rate_limit_requests = 100
+rate_limit_window_seconds = 60
+
+[runtime]
+memory_json_path = "~/.config/crustaison/memory.json"
+heartbeat_interval_seconds = 300
+
+[telegram]
+bot_token = ""
+allowed_users = []
+
+[security]
+allow_destructive = false
+require_confirmation = ["write", "exec"]
+max_file_size_mb = 10
