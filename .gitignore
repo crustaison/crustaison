@@ -5,3 +5,10 @@
 .DS_Store
 /tmp/
 *.log
+
+# Never commit real configs with secrets
+config.toml
+*.env
+.env*
+credentials*
+*secret*
