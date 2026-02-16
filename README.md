@@ -11,7 +11,7 @@ A self-improving AI agent built in Rust with safety-first architecture.
 - **Plugins**: Dynamic plugin system with metadata
 - **Webhooks**: Outbound webhooks for event notifications
 - **CLI & TUI**: Terminal interface and REST API
-- **Telegram Bot**: @ryzozarkbot integration
+- **Telegram Bot**: integration
 
 ## Quick Start
 
