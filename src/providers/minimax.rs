@@ -81,16 +81,16 @@ impl Provider for MiniMaxProvider {
         // Build messages array - prepend system message if provided
         let mut all_messages = Vec::new();
         if let Some(system) = &system_prompt {
+            tracing::info!("=== SYSTEM PROMPT ({} chars) ===", system.len());
+            tracing::info!("{}", if system.len() > 500 { &system[..500] } else { &system[..] });
+            tracing::info!("=== END SYSTEM PROMPT ===");
             all_messages.push(ApiMessage {
                 role: "system".to_string(),
-                content: system.clone(),
+                content: ApiContent::Text(system.clone()),
             });
         }
         for msg in &messages {
-            all_messages.push(ApiMessage {
-                role: msg.role.clone(),
-                content: msg.content.clone(),
-            });
+            all_messages.push(to_api_message(msg));
         }
 
         let request = ApiRequest {
@@ -130,7 +130,7 @@ impl Provider for MiniMaxProvider {
         });
 
         Ok(ProviderResponse {
-            content: choice.message.content.clone(),
+            content: match &choice.message.content { ApiContent::Text(t) => t.clone(), ApiContent::Parts(parts) => parts.iter().filter_map(|p| if let ContentPart::Text { text } = p { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join(" ") },
             usage,
         })
     }
@@ -157,10 +157,54 @@ struct ApiRequest {
     stream: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+/// Content can be a plain string (text-only) or an array of parts (vision)
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+enum ApiContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+enum ContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    ImageUrl { image_url: ImageUrlValue },
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ImageUrlValue {
+    url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct ApiMessage {
     role: String,
-    content: String,
+    content: ApiContent,
+}
+
+fn to_api_message(msg: &crate::providers::provider::ChatMessage) -> ApiMessage {
+    if msg.images.is_empty() {
+        ApiMessage {
+            role: msg.role.clone(),
+            content: ApiContent::Text(msg.content.clone()),
+        }
+    } else {
+        let mut parts: Vec<ContentPart> = msg.images.iter().map(|url| {
+            ContentPart::ImageUrl {
+                image_url: ImageUrlValue { url: url.clone() },
+            }
+        }).collect();
+        if !msg.content.is_empty() {
+            parts.push(ContentPart::Text { text: msg.content.clone() });
+        }
+        ApiMessage {
+            role: msg.role.clone(),
+            content: ApiContent::Parts(parts),
+        }
+    }
 }
 
 #[derive(Deserialize)]

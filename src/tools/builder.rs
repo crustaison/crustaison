@@ -2,7 +2,7 @@
 //!
 //! Creates and configures the tool registry with all available tools.
 
-use crate::tools::{ToolRegistry, ExecTool, FilesTool, WebTool, BrowserTool, ImageTool, ScheduleTool};
+use crate::tools::{ToolRegistry, ExecTool, FilesTool, WebTool, BrowserTool, ImageTool, ScheduleTool, HttpTool, GoogleDriveTool, GoogleTool};
 use std::sync::Arc;
 
 /// Create the default tool registry with all standard tools
@@ -15,6 +15,9 @@ pub async fn create_tool_registry() -> ToolRegistry {
     registry.register(WebTool::new()).await;
     registry.register(BrowserTool::new()).await;
     registry.register(ImageTool::new()).await;
+    registry.register(HttpTool::new()).await;
+    registry.register(GoogleDriveTool::new("gdrive-crusty")).await;
+    registry.register(GoogleTool::new()).await;
     // Note: ScheduleTool is added separately in main.rs with chat_id
     
     registry
@@ -25,6 +28,7 @@ pub async fn create_tool_registry_with_config(
     exec_config: Option<super::exec::ExecConfig>,
     files_config: Option<super::files::FilesConfig>,
     web_config: Option<super::web::WebConfig>,
+    http_config: Option<super::http::HttpConfig>,
 ) -> ToolRegistry {
     let registry = ToolRegistry::new();
     
@@ -45,6 +49,13 @@ pub async fn create_tool_registry_with_config(
         registry.register(WebTool::with_config(config)).await;
     } else {
         registry.register(WebTool::new()).await;
+    }
+    
+    // Add HTTP tool
+    if let Some(config) = http_config {
+        registry.register(HttpTool::with_config(config)).await;
+    } else {
+        registry.register(HttpTool::new()).await;
     }
     
     // Add browser and image tools (no config options yet)

@@ -50,6 +50,7 @@ uuid = { version = "1", features = ["v4"] }
 
 # MD5 for ledger hashing
 md5 = "0.7"
+base64 = "0.22"
 
 # Telegram
 teloxide = { version = "0.12", features = ["macros", "auto-send"] }

@@ -29,9 +29,16 @@ impl Default for ExecConfig {
             allowed_dirs: vec!["/home/sean".to_string()],
             blocked_commands: vec![
                 "rm -rf /".to_string(),
+                "rm -rf /*".to_string(),
+                "rm -r /".to_string(),
                 "dd if=/dev/zero".to_string(),
                 "mkfs".to_string(),
                 ":(){ :|:& };:".to_string(),
+                "DROP TABLE".to_string(),
+                "DROP DATABASE".to_string(),
+                "shutdown".to_string(),
+                "reboot".to_string(),
+                "> /dev/sd".to_string(),
             ],
             max_output: 1024 * 1024, // 1MB
             timeout: 60,

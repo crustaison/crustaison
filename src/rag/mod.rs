@@ -45,13 +45,13 @@ impl RAGEngine {
     }
     
     /// Index a document
-    pub fn index_document(&mut self, content: &str, source: &str, metadata: Option<serde_json::Value>) -> Vec<String> {
+    pub async fn index_document(&mut self, content: &str, source: &str, metadata: Option<serde_json::Value>) -> Vec<String> {
         // Split into chunks
         let chunks = self.chunk_text(content);
         
         let mut ids = Vec::new();
         for chunk in &chunks {
-            let embedding = self.embedder.embed(chunk);
+            let embedding = self.embedder.embed(chunk).await;
             let id = self.vector_store.add(chunk, embedding, metadata.clone());
             ids.push(id);
         }
@@ -60,8 +60,8 @@ impl RAGEngine {
     }
     
     /// Search and retrieve relevant context
-    pub fn retrieve(&self, query: &str, max_docs: Option<usize>) -> Vec<&EmbeddingEntry> {
-        let query_embedding = self.embedder.embed(query);
+    pub async fn retrieve(&self, query: &str, max_docs: Option<usize>) -> Vec<&EmbeddingEntry> {
+        let query_embedding = self.embedder.embed(query).await;
         let limit = max_docs.unwrap_or(self.config.max_context_docs);
         
         let results = self.vector_store.search(&query_embedding, limit);
@@ -75,8 +75,8 @@ impl RAGEngine {
     }
     
     /// Build context from retrieved documents
-    pub fn build_context(&self, query: &str) -> String {
-        let docs = self.retrieve(query, None);
+    pub async fn build_context(&self, query: &str) -> String {
+        let docs = self.retrieve(query, None).await;
         
         if docs.is_empty() {
             return String::new();

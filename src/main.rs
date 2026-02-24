@@ -921,7 +921,7 @@ async fn main() -> Result<()> {
             let nexa_provider = NexaProvider::new(
                 "localhost".to_string(),
                 18181,
-                "qwen2.5-3b".to_string(),
+                "unsloth/Qwen3-1.7B-GGUF".to_string(),
             );
             
             let heartbeat_config = HeartbeatConfig::default();
@@ -977,6 +977,31 @@ async fn main() -> Result<()> {
             
             println!("✅ Telegram bot + heartbeat ready");
             
+            // Wire RAG engine to agent for semantic memory
+            {
+                let data_dir_rag = dirs::data_dir()
+                    .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                    .join("crustaison");
+                let vector_path = data_dir_rag.join("vector_store");
+                let vs = vector::VectorStore::new(vector_path);
+                let embedder = vector::Embedder::new(
+                    "http://localhost:18181".to_string(),
+                    "Qwen/Qwen3-Embedding-0.6B-GGUF".to_string(),
+                );
+                let rag_cfg = rag::RAGConfig {
+                    enabled: true,
+                    max_context_docs: 3,
+                    min_similarity: 0.4,
+                    chunk_size: 1000,
+                    chunk_overlap: 200,
+                };
+                let rag_engine = std::sync::Arc::new(tokio::sync::Mutex::new(
+                    rag::RAGEngine::new(vs, embedder, rag_cfg)
+                ));
+                agent.lock().await.set_rag_engine(rag_engine);
+                println!("🧠 RAG engine wired (Nexa Qwen3-Embedding)");
+            }
+
             // Pass the agent to telegram
             telegram::run_telegram_bot(bot_token, agent.clone(), allowed_users).await;
         }
@@ -1372,7 +1397,7 @@ async fn main() -> Result<()> {
                 .join("crustaison");
             let vector_path = data_dir.join("vector_store");
             let mut vector_store = VectorStore::new(vector_path);
-            let embedder = Embedder::new(None, 384);
+            let embedder = Embedder::new("http://localhost:18181".to_string(), "Qwen/Qwen3-Embedding-0.6B-GGUF".to_string());
             let rag_config = rag::RAGConfig {
                 enabled: true,
                 max_context_docs: 5,
@@ -1384,11 +1409,11 @@ async fn main() -> Result<()> {
             
             match action {
                 Some(RAGCommands::Index { source, content }) => {
-                    let ids = rag.index_document(&content, &source, Some(serde_json::json!({"source": source})));
+                    let ids = rag.index_document(&content, &source, Some(serde_json::json!({"source": source}))).await;
                     println!("Indexed {} chunks from {}", ids.len(), source);
                 }
                 Some(RAGCommands::Search { query }) => {
-                    let results = rag.retrieve(&query, None);
+                    let results = rag.retrieve(&query, None).await;
                     println!("Found {} relevant documents:", results.len());
                     for doc in results.iter().take(5) {
                         println!("  - [{}] {}", 
@@ -1407,7 +1432,7 @@ async fn main() -> Result<()> {
                     println!("  Min similarity: {}", stats.config.min_similarity);
                 }
                 Some(RAGCommands::Context { query }) => {
-                    let context = rag.build_context(&query);
+                    let context = rag.build_context(&query).await;
                     if context.is_empty() {
                         println!("No relevant context found.");
                     } else {

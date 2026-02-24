@@ -306,6 +306,7 @@ impl HeartbeatRunner {
                     let messages = vec![ChatMessage {
                         role: "user".to_string(),
                         content: prompt.clone(),
+                        images: Vec::new(),
                     }];
                     match nexa.chat(messages, None).await {
                         Ok(response) => Ok(response.content),
@@ -376,6 +377,7 @@ Respond with EXACTLY one of:
             let messages = vec![ChatMessage {
                 role: "user".to_string(),
                 content: prompt,
+                images: Vec::new(),
             }];
             
             match nexa.chat(messages, None).await {

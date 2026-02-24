@@ -16,6 +16,9 @@ pub mod schedule;
 pub mod email;
 pub mod github;
 pub mod plugin;
+pub mod http;
+pub mod gdrive;
+pub mod google;
 
 pub use tool::{Tool, ToolResult};
 pub use registry::ToolRegistry;
@@ -31,3 +34,6 @@ pub use schedule::ScheduleTool;
 pub use email::{EmailTool, EmailConfig};
 pub use github::{GitHubTool, GitHubConfig};
 pub use plugin::{ScriptTool, PluginManifest, load_plugins};
+pub use http::{HttpTool, HttpConfig, HttpRequest, HttpResult};
+pub use gdrive::GoogleDriveTool;
+pub use google::GoogleTool;

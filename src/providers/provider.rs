@@ -11,6 +11,9 @@ use std::fmt;
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    /// Optional base64 image data URLs for vision (e.g. "data:image/jpeg;base64,...")
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 /// Provider response

@@ -140,48 +140,83 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
-/// Simple embedding generator (placeholder)
-/// In production, use a proper embedding model API
+/// Real embedding generator using Nexa API
 pub struct Embedder {
-    api_endpoint: Option<String>,
-    dimension: usize,
+    api_endpoint: String,
+    model: String,
 }
 
 impl Embedder {
-    pub fn new(api_endpoint: Option<String>, dimension: usize) -> Self {
-        Self { api_endpoint, dimension }
+    pub fn new(api_endpoint: String, model: String) -> Self {
+        Self { api_endpoint, model }
     }
     
-    /// Generate embedding for text
-    /// Uses simple TF-IDF like approach as placeholder
-    pub fn embed(&self, text: &str) -> Vec<f32> {
-        // Simple bag-of-words style embedding
-        // In production, replace with actual embedding model
-        let words: Vec<&str> = text.split_whitespace().collect();
-        let mut embedding = vec![0.0; self.dimension.min(384)];
+    /// Generate embedding for text using Nexa API
+    pub async fn embed(&self, text: &str) -> Vec<f32> {
+        let client = reqwest::Client::new();
         
-        for (i, word) in words.iter().enumerate().take(embedding.len()) {
-            // Simple hash-based value
-            let hash = self.simple_hash(word);
-            embedding[i] = ((hash % 100) as f32) / 100.0;
-        }
+        let payload = serde_json::json!({
+            "model": self.model,
+            "input": [text]
+        });
         
-        // Normalize
-        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.0 {
-            for v in &mut embedding {
-                *v /= norm;
+        match client.post(&format!("{}/v1/embeddings", self.api_endpoint))
+            .json(&payload)
+            .send()
+            .await {
+                Ok(response) => {
+                    if let Ok(json) = response.json::<serde_json::Value>().await {
+                        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                            if let Some(first) = data.first() {
+                                if let Some(embedding) = first.get("embedding").and_then(|e| e.as_array()) {
+                                    return embedding.iter()
+                                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                                        .collect();
+                                }
+                            }
+                        }
+                    }
+                    // Fallback: return zero vector on parse failure
+                    vec![0.0; 1024]
+                }
+                Err(_) => {
+                    // Fallback: return zero vector on network failure
+                    vec![0.0; 1024]
+                }
             }
-        }
-        
-        embedding
     }
     
-    fn simple_hash(&self, s: &str) -> u64 {
-        let mut h = 0u64;
-        for c in s.chars() {
-            h = h.wrapping_mul(31).wrapping_add(c as u64);
-        }
-        h
+    /// Generate embeddings for multiple texts
+    pub async fn embed_batch(&self, texts: &[&str]) -> Vec<Vec<f32>> {
+        let client = reqwest::Client::new();
+        
+        let payload = serde_json::json!({
+            "model": self.model,
+            "input": texts
+        });
+        
+        match client.post(&format!("{}/v1/embeddings", self.api_endpoint))
+            .json(&payload)
+            .send()
+            .await {
+                Ok(response) => {
+                    if let Ok(json) = response.json::<serde_json::Value>().await {
+                        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                            return data.iter()
+                                .filter_map(|item| {
+                                    item.get("embedding").and_then(|e| e.as_array()).map(|emb| {
+                                        emb.iter()
+                                            .filter_map(|v| v.as_f64().map(|f| f as f32))
+                                            .collect()
+                                    })
+                                })
+                                .collect();
+                        }
+                    }
+                    // Fallback
+                    vec![]
+                }
+                Err(_) => vec![]
+            }
     }
 }

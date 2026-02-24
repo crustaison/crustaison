@@ -408,7 +408,6 @@ pub fn default_checks() -> Vec<Box<dyn Check>> {
         Box::new(MemoryCheck::new(90)),
         Box::new(ServiceCheck::new(vec![
             ("Nexa".to_string(), "localhost".to_string(), 18181),
-            ("Ollama".to_string(), "localhost".to_string(), 11434),
         ])),
         Box::new(LoadCheck::new(4.0)),
         Box::new(UptimeCheck::new()),

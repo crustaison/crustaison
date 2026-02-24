@@ -2,6 +2,7 @@
 //!
 //! Enhanced with commands for model switching and history management.
 
+use base64::Engine as _;
 use crate::agent::Agent;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,14 +27,16 @@ pub struct TelegramHandler {
     agent: Arc<Mutex<Agent>>,
     user_states: std::sync::Mutex<HashMap<i64, UserState>>,
     default_provider: String,
+    bot_token: String,
 }
 
 impl TelegramHandler {
-    pub fn new(agent: Arc<Mutex<Agent>>, default_provider: &str) -> Self {
+    pub fn new(agent: Arc<Mutex<Agent>>, default_provider: &str, bot_token: String) -> Self {
         Self {
             agent,
             user_states: std::sync::Mutex::new(HashMap::new()),
             default_provider: default_provider.to_string(),
+            bot_token,
         }
     }
     
@@ -149,12 +152,94 @@ impl TelegramHandler {
     }
 }
 
+/// Strip ANSI escape sequences from a string.
+fn strip_ansi(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b {
+            i += 1;
+            if i < bytes.len() {
+                match bytes[i] {
+                    b'[' => {
+                        i += 1;
+                        // consume parameter bytes and final alphabetic byte
+                        while i < bytes.len() {
+                            let b = bytes[i];
+                            i += 1;
+                            if b.is_ascii_alphabetic() { break; }
+                        }
+                    }
+                    b']' => {
+                        // OSC sequence — ends at BEL or ESC-backslash
+                        i += 1;
+                        while i < bytes.len() {
+                            if bytes[i] == 0x07 { i += 1; break; }
+                            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
+                                i += 2; break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    _ => { i += 1; } // other 2-char sequences
+                }
+            }
+        } else {
+            result.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&result).into_owned()
+}
+
+/// Parse the raw stdout from `nexa infer` (VLM mode) and return just the response text.
+///
+/// The output format is:
+///   [ANSI/spinner] > /tmp/image.jpg\n[optional intermediate response]\n— stats —\n
+///   [ANSI/spinner] > [text prompt]\n[final response]\n— stats —\n
+///
+/// We want the content that follows the LAST `> ` prompt-echo line.
+fn parse_nexa_vlm_output(raw: &str, _is_default_prompt: bool) -> String {
+    let clean = strip_ansi(raw);
+
+    // Build display lines: for each \n-segment, \r restarts the line so we take the last part
+    let mut display_lines: Vec<&str> = Vec::new();
+    for nl_seg in clean.split('\n') {
+        let last = nl_seg.split('\r').last().unwrap_or("");
+        display_lines.push(last);
+    }
+
+    // Find the last prompt-echo line (starts with "> ")
+    let last_prompt_idx = display_lines.iter().enumerate()
+        .rev()
+        .find(|(_, line)| line.trim().starts_with("> "))
+        .map(|(i, _)| i);
+
+    let start_idx = last_prompt_idx.map(|i| i + 1).unwrap_or(0);
+
+    display_lines[start_idx..].iter()
+        .filter(|line| {
+            let t = line.trim();
+            !t.is_empty()
+                && !t.contains("tok/s")
+                && !t.starts_with("loading")
+                && !t.starts_with("encoding")
+        })
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
 /// Run the Telegram bot
 pub async fn run_telegram_bot(
     bot_token: String,
     agent: Arc<Mutex<Agent>>,
     allowed_users: Vec<i64>,
 ) {
+    let handler_token = bot_token.clone();
     let bot = Bot::new(bot_token);
 
     println!("🤖 Crustaison Telegram bot starting...");
@@ -172,7 +257,7 @@ pub async fn run_telegram_bot(
     println!("Listening for messages...");
 
     let allowed = Arc::new(allowed_users);
-    let handler = Arc::new(TelegramHandler::new(agent, "minimax"));
+    let handler = Arc::new(TelegramHandler::new(agent, "minimax", handler_token));
 
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let handler = handler.clone();
@@ -188,7 +273,99 @@ pub async fn run_telegram_bot(
                 return Ok(());
             }
 
-            if let Some(text) = msg.text() {
+            if let Some(photos) = msg.photo() {
+                // Handle photo messages (with optional caption)
+                let caption = msg.caption().unwrap_or("").to_string();
+                let photo = photos.iter().max_by_key(|p| p.width * p.height)
+                    .or_else(|| photos.last());
+
+                if let Some(photo) = photo {
+                    match bot.get_file(photo.file.id.clone()).await {
+                        Ok(file) => {
+                            let download_url = format!(
+                                "https://api.telegram.org/file/bot{}/{}",
+                                handler.bot_token, file.path
+                            );
+                            match reqwest::get(&download_url).await {
+                                Ok(resp) => match resp.bytes().await {
+                                    Ok(bytes) => {
+                                        let prompt_text = if caption.is_empty() {
+                                            "Please read and transcribe ALL text visible in this image exactly as written, including every date, time, name, and detail. List everything you can see.".to_string()
+                                        } else {
+                                            caption.clone()
+                                        };
+
+                                        let typing_bot = bot.clone();
+                                        let typing_token = tokio_util::sync::CancellationToken::new();
+                                        let typing_cancel = typing_token.clone();
+                                        tokio::spawn(async move {
+                                            loop {
+                                                let _ = typing_bot.send_chat_action(chat_id, teloxide::types::ChatAction::Typing).await;
+                                                tokio::select! {
+                                                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(4)) => {}
+                                                    _ = typing_cancel.cancelled() => break,
+                                                }
+                                            }
+                                        });
+
+                                        // Use nexa infer with Qwen3-VL-2B for vision
+                                        // Save image to temp file, run nexa infer, parse output
+                                        let img_path = format!("/tmp/crusty_vision_{}.jpg", uuid::Uuid::new_v4());
+                                        let response = match tokio::fs::write(&img_path, &bytes).await {
+                                            Ok(_) => {
+                                                let mut cmd_args = vec![
+                                                    "infer".to_string(),
+                                                    "unsloth/Qwen3-VL-2B-Instruct-GGUF:Q4_0".to_string(),
+                                                    "-p".to_string(), img_path.clone(),
+                                                ];
+                                                if !prompt_text.is_empty() {
+                                                    cmd_args.push("-p".to_string());
+                                                    cmd_args.push(prompt_text.clone());
+                                                }
+                                                cmd_args.extend(["--hide-think".to_string(), "--max-tokens".to_string(), "512".to_string()]);
+
+                                                match tokio::process::Command::new("nexa")
+                                                    .args(&cmd_args)
+                                                    .output()
+                                                    .await
+                                                {
+                                                    Ok(out) => {
+                                                        let _ = tokio::fs::remove_file(&img_path).await;
+                                                        let raw = String::from_utf8_lossy(&out.stdout).to_string();
+                                                        parse_nexa_vlm_output(&raw, prompt_text.is_empty())
+                                                    }
+                                                    Err(e) => {
+                                                        let _ = tokio::fs::remove_file(&img_path).await;
+                                                        format!("Vision error: {}", e)
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => format!("Failed to save image: {}", e),
+                                        };
+                                        typing_token.cancel();
+
+                                        // Add vision exchange to agent history so follow-up messages have context
+                                        {
+                                            let user_msg = if caption.is_empty() {
+                                                "[sent an image]".to_string()
+                                            } else {
+                                                format!("[sent an image: {}]", caption)
+                                            };
+                                            let mut agent = handler.agent.lock().await;
+                                            agent.add_context(&user_msg, &format!("[Kimi-VL image analysis]: {}", response.trim()));
+                                        }
+
+                                        bot.send_message(chat_id, if response.trim().is_empty() { "✓ Done.".to_string() } else { response }).await?;
+                                    }
+                                    Err(e) => { bot.send_message(chat_id, format!("Failed to read image: {}", e)).await?; }
+                                },
+                                Err(e) => { bot.send_message(chat_id, format!("Failed to download image: {}", e)).await?; }
+                            }
+                        }
+                        Err(e) => { bot.send_message(chat_id, format!("Failed to get file info: {}", e)).await?; }
+                    }
+                }
+            } else if let Some(text) = msg.text() {
                 // Spawn recurring typing indicator until response is ready
                 let typing_bot = bot.clone();
                 let typing_token = tokio_util::sync::CancellationToken::new();
@@ -208,14 +385,28 @@ pub async fn run_telegram_bot(
                 typing_token.cancel();
 
                 // Send response (handle length limits)
-                if response.len() > 4000 {
-                    for chunk in response.chars().collect::<String>().as_bytes().chunks(4000) {
-                        let chunk_str = String::from_utf8_lossy(chunk);
-                        bot.send_message(chat_id, chunk_str.to_string()).await?;
-                    }
+                let response = if response.trim().is_empty() {
+                    "✓ Done.".to_string()
                 } else {
-                    bot.send_message(chat_id, response).await?;
+                    response
+                };
+                tracing::info!("Sending response ({} chars) to chat {}", response.len(), chat_id);
+                let send_result = if response.len() > 4000 {
+                    let mut last_result = Ok(());
+                    for chunk in response.chars().collect::<String>().as_bytes().chunks(3900) {
+                        let chunk_str = String::from_utf8_lossy(chunk).to_string();
+                        last_result = bot.send_message(chat_id, chunk_str).await.map(|_| ());
+                        if last_result.is_err() { break; }
+                    }
+                    last_result
+                } else {
+                    bot.send_message(chat_id, response).await.map(|_| ())
+                };
+                match send_result {
+                    Ok(_) => tracing::info!("Response delivered to chat {}", chat_id),
+                    Err(ref e) => tracing::error!("Failed to send response to chat {}: {}", chat_id, e),
                 }
+                send_result?;
             }
 
             Ok(())

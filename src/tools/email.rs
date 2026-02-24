@@ -526,7 +526,7 @@ fn read_imap_inbox(host: &str, port: u16, username: &str, password: &str, count:
         };
 
         let formatted = format!(
-            "From: {}\nSubject: {}\nDate: {}\n\n{}",
+            "From: {}\nSubject: {}\nDate: {}\n\n[UNTRUSTED_EXTERNAL_CONTENT]\n{}\n[/UNTRUSTED_EXTERNAL_CONTENT]",
             from, subject, date, body_text
         );
         results.push(formatted);
@@ -595,7 +595,7 @@ fn search_imap_emails(host: &str, port: u16, username: &str, password: &str, que
         };
 
         let formatted = format!(
-            "From: {}\nSubject: {}\nDate: {}\n\n{}",
+            "From: {}\nSubject: {}\nDate: {}\n\n[UNTRUSTED_EXTERNAL_CONTENT]\n{}\n[/UNTRUSTED_EXTERNAL_CONTENT]",
             from, subject, date, body_text
         );
         email_results.push(formatted);
