@@ -11,11 +11,22 @@ It handles whatever format the underlying LLM decides to output tool calls in, w
 ## Features
 
 - **Telegram Bot** — primary interface, single-user (owner-authorized only)
-- **MiniMax M2.1** — primary LLM with fallback to Ollama/Nexa local models
+- **MiniMax M2.1** — primary LLM (cloud) with fallback to local models via Ollama and the Nexa SDK
 - **Multi-strategy tool call parsing** — handles XML, JSON, `[TOOL_CALL]`, `<invoke>`, `<FunctionCall>`, and bare identifier formats
-- **RAG** — Retrieval-Augmented Generation via Nexa Qwen3-Embedding vector store
-- **Heartbeat** — periodic email monitoring and Nexa watchdog
+- **RAG** — Retrieval-Augmented Generation using Nexa SDK to run `Qwen3-Embedding` locally (NPU-accelerated) for all vector embeddings
+- **Heartbeat** — periodic email monitoring and liveness check; uses a local Nexa model to generate the watchdog ping, keeping inference fully on-device
 - **Operator authority doctrine** — soul.md defines identity and operator trust hierarchy
+
+## Local model stack (Nexa SDK)
+
+Two subsystems run entirely on local hardware via the [Nexa SDK](https://github.com/NexaAI/nexa-sdk), with no cloud calls:
+
+| Subsystem | Model | Purpose |
+|-----------|-------|---------|
+| Embeddings / RAG | `Qwen3-Embedding` | Generates vector embeddings for all indexed documents and semantic search queries |
+| Heartbeat | Nexa inference | Produces the periodic watchdog message sent to Telegram, verifying the agent is alive and the local stack is healthy |
+
+The Nexa server runs on `localhost:18181` and serves an OpenAI-compatible API. MiniMax handles the primary chat; Nexa handles everything that should stay on-device.
 
 ## Tools
 
