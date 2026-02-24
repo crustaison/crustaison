@@ -141,8 +141,8 @@ Every 5 minutes the heartbeat task wakes up, checks email for anything urgent, a
 The agent's identity and behaviour rules live in `doctrine/soul.md`. This file is loaded at startup and injected as the system prompt prefix on every request. It establishes:
 
 - Who Crusty is and how it should behave
-- **Operator Authority** — Sean (the owner) has unconditional authority. Crusty follows instructions without moralising or refusing. If it has a concern it may state it once, then proceeds anyway.
-- Scope boundaries — what counts as "private" (Sean's personal data vs. third parties)
+- **Operator Authority** — (the owner) has unconditional authority. Crusty follows instructions without moralising or refusing. If it has a concern it may state it once, then proceeds anyway.
+- Scope boundaries — what counts as "private" (personal data vs. third parties)
 - Tone and personality
 
 The doctrine file is plain Markdown so it can be edited without touching Rust code.
@@ -156,7 +156,6 @@ The doctrine file is plain Markdown so it can be edited without touching Rust co
 - `rm -rf /` — recursive delete from root
 - `curl | sh` — remote code execution via pipe
 
-`sudo` is explicitly **allowed** (Sean authorized it for Kali machine scanning tasks). The deny-list is conservative by design — it blocks obviously catastrophic commands, not general system administration.
 
 ---
 
