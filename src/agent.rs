@@ -255,6 +255,7 @@ impl Agent {
     async fn process_with_tools(&mut self) -> Result<String, anyhow::Error> {
         let mut iterations = 0;
         let mut recent_calls: Vec<String> = Vec::new(); // Loop detection
+        let history_checkpoint = self.history.len(); // Rollback point if LLM fails
         
         loop {
             // Filter empty assistant messages before sending — they corrupt MiniMax context
@@ -302,13 +303,18 @@ impl Agent {
                         Some(self.system_prompt.clone()),
                     ).await?;
                     
+                    let final_text = strip_tool_calls(&final_response.content);
+                    if final_text.trim().is_empty() {
+                        tracing::warn!("Empty final response after loop detection — rolling back history");
+                        self.history.truncate(history_checkpoint);
+                        return Ok("I got stuck in a loop and couldn't recover. Please try rephrasing your request.".to_string());
+                    }
                     self.history.push(ChatMessage {
                         role: "assistant".to_string(),
                         content: final_response.content.clone(),
                         images: Vec::new(),
 });
-                    
-                    return Ok(strip_tool_calls(&final_response.content));
+                    return Ok(final_text);
                 }
                 
                 if iterations > self.max_tool_iterations {
@@ -328,13 +334,18 @@ impl Agent {
                         Some(self.system_prompt.clone()),
                     ).await?;
                     
+                    let final_text = strip_tool_calls(&final_response.content);
+                    if final_text.trim().is_empty() {
+                        tracing::warn!("Empty final response after max iterations — rolling back history");
+                        self.history.truncate(history_checkpoint);
+                        return Ok("I ran too many tool calls without a result. Please try a simpler request.".to_string());
+                    }
                     self.history.push(ChatMessage {
                         role: "assistant".to_string(),
                         content: final_response.content.clone(),
                         images: Vec::new(),
 });
-                    
-                    return Ok(strip_tool_calls(&final_response.content));
+                    return Ok(final_text);
                 }
                 
                 self.history.push(ChatMessage {
@@ -377,7 +388,16 @@ impl Agent {
             
             // Guard: never push empty content to history
             if content.trim().is_empty() {
-                tracing::warn!("LLM returned empty response — not storing in history");
+                tracing::warn!("LLM returned empty response — rolling back history to checkpoint");
+                self.history.truncate(history_checkpoint);
+                return Ok("I ran into an issue generating a response. Please try again.".to_string());
+            }
+
+            // Guard: strip_tool_calls must leave non-empty text
+            let final_text = strip_tool_calls(&content);
+            if final_text.trim().is_empty() {
+                tracing::warn!("Response contained only tool syntax — rolling back history");
+                self.history.truncate(history_checkpoint);
                 return Ok("I ran into an issue generating a response. Please try again.".to_string());
             }
 
@@ -396,7 +416,7 @@ impl Agent {
                 );
             }
             
-            return Ok(strip_tool_calls(&content));
+            return Ok(final_text);
         }
     }
 
