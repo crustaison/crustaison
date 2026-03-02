@@ -21,6 +21,8 @@ pub struct Config {
     pub email: Option<EmailConfig>,
     #[serde(default)]
     pub github: Option<GitHubConfig>,
+    #[serde(default)]
+    pub coordinator: CoordinatorConfig,
 }
 
 impl Default for Config {
@@ -33,6 +35,7 @@ impl Default for Config {
             ledger: LedgerConfig::default(),
             email: None,
             github: None,
+            coordinator: CoordinatorConfig::default(),
         }
     }
 }
@@ -271,5 +274,31 @@ fn expand_tilde(path: &PathBuf, home: &PathBuf) -> PathBuf {
         expanded
     } else {
         path.clone()
+    }
+}
+
+/// Coordinator configuration for 5-model multi-agent stack
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoordinatorConfig {
+    pub enabled: bool,
+    pub router_model: String,
+    pub local_model: String,
+    pub vision_model: String,
+    pub reason_model: String,
+    pub embedding_model: String,
+    pub nexa_url: String,
+}
+
+impl Default for CoordinatorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            router_model: "unsloth/Qwen3-1.7B-GGUF:Q4_0".to_string(),
+            local_model: "unsloth/Qwen3-1.7B-GGUF:Q4_0".to_string(),
+            vision_model: "unsloth/Qwen3-VL-2B-Instruct-GGUF:Q4_0".to_string(),
+            reason_model: "unsloth/Qwen3.5-35B-A3B-GGUF:Q4_K_M".to_string(),
+            embedding_model: "Qwen/Qwen3-Embedding-0.6B-GGUF:F16".to_string(),
+            nexa_url: "http://localhost:18181".to_string(),
+        }
     }
 }

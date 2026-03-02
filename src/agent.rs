@@ -115,7 +115,19 @@ impl Agent {
         tracing::info!("RAG engine wired to agent");
     }
 
-    async fn build_system_prompt(&mut self) {
+    /// Hot-swap the LLM provider at runtime
+    pub fn set_provider(&mut self, provider: Box<dyn crate::providers::provider::Provider>) {
+        self.provider = provider;
+        tracing::info!("Provider switched");
+    }
+
+    /// Return a short label describing the current provider (best effort)
+    pub fn provider_label(&self) -> &str {
+        // Provider trait doesn't expose name — we rely on the tool tracking this
+        "(active)"
+    }
+
+    pub async fn build_system_prompt(&mut self) {
         let doctrine = self.doctrine_loader.load().await
             .unwrap_or_else(|_| Doctrine {
                 soul: None,
@@ -147,9 +159,9 @@ impl Agent {
                 }
                 prompt.push_str("\nAfter receiving tool results, continue the conversation naturally.\n\n");
                 prompt.push_str("## Capabilities\n\n");
-                prompt.push_str("- IMPORTANT: When a user asks you to do something in the future (weather check, reminder, timed task), you MUST use the 'schedule' tool. NEVER use bash sleep or nohup for delayed tasks — those do not push results to Telegram.\n");
-                prompt.push_str("- The 'schedule' tool queues tasks for the heartbeat system which AUTOMATICALLY sends results to the user via Telegram when they are due.\n");
-                prompt.push_str("- For scheduled weather: use schedule with action='weather' and location='City, State'. For reminders: action='reminder'. For commands: action='command'.\n");
+                prompt.push_str("- For CURRENT/IMMEDIATE weather: use the 'web' tool with action='weather' and location='City, State'. This returns weather right now.\n");
+                prompt.push_str("- IMPORTANT: Use 'schedule' ONLY for future/delayed tasks (reminders, timed commands, future weather checks). NEVER use bash sleep or nohup for delayed tasks — those do not push results to Telegram.\n");
+                prompt.push_str("- The 'schedule' tool queues future tasks for the heartbeat system. For reminders: action='reminder'. For scheduled commands: action='command'. For future weather: action='weather'.\n");
                 prompt.push_str("- You can check weather, run commands, read/write files, and search the web\n");
                 prompt.push_str("- You have a GitHub account (crustaison) and can create repos, push code, and manage issues\n");
                 prompt.push_str("- You can send and read emails via crustaison@gmail.com\n\n");

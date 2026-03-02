@@ -48,7 +48,7 @@ impl Default for HeartbeatConfig {
             alert_cooldown_secs: 3600,
             nexa_host: "localhost".to_string(),
             nexa_port: 18181,
-            nexa_model: "qwen2.5-3b".to_string(),
+            nexa_model: "unsloth/Qwen3-1.7B-GGUF:Q4_0".to_string(),
         }
     }
 }
@@ -376,13 +376,15 @@ Respond with EXACTLY one of:
             // Use local Nexa for free analysis
             let messages = vec![ChatMessage {
                 role: "user".to_string(),
-                content: prompt,
+                content: format!("/no_think {}", prompt),
                 images: Vec::new(),
             }];
             
             match nexa.chat(messages, None).await {
                 Ok(response) => {
-                    let text = response.content;
+                    // Strip <think>...</think> blocks before parsing
+                    let raw = response.content;
+                    let text = strip_think_tags(&raw);
                     // Return true if alert needed
                     text.contains("ALERT:")
                 }
@@ -519,4 +521,20 @@ fn check_inbox_for_new(host: &str, port: u16, username: &str, password: &str) ->
 
     let _ = session.logout();
     Ok((total, summaries))
+}
+
+/// Strip <think>...</think> blocks from Qwen3 extended thinking output.
+fn strip_think_tags(text: &str) -> String {
+    let mut result = String::new();
+    let mut remaining = text;
+    while let Some(start) = remaining.find("<think>") {
+        result.push_str(&remaining[..start]);
+        if let Some(end) = remaining[start..].find("</think>") {
+            remaining = &remaining[start + end + 8..];
+        } else {
+            break;
+        }
+    }
+    result.push_str(remaining);
+    result.trim().to_string()
 }

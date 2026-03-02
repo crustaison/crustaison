@@ -30,6 +30,7 @@ mod memory;
 mod cli;
 mod vector;
 mod rag;
+mod coordinator;
 mod plugins;
 mod webhooks;
 
@@ -42,13 +43,15 @@ use crate::runtime::Heartbeat;
 use providers::MiniMaxProvider;
 use providers::nexa::NexaProvider;
 use agent::Agent;
-use tools::{ToolRegistry, create_tool_registry, ScheduleTool, EmailTool, GitHubTool};
+use tools::{ToolRegistry, create_tool_registry, ScheduleTool, EmailTool, GitHubTool, MemoryTool, ModelSwitchTool};
 use tui::run_tui;
 use sessions::SessionManager;
 use cli::{config_commands, security_commands, edit_commands, plugin_commands};
 use memory::MemoryManager;
 use vector::{VectorStore, Embedder};
 use rag::RAGEngine;
+use coordinator::Coordinator;
+use providers::subprocess::SubprocessProvider;
 use plugins::{PluginManager, PluginState};
 use webhooks::{WebhookServer, WebhookClient, OutboundWebhook};
 
@@ -644,6 +647,13 @@ async fn main() -> Result<()> {
     // Register schedule tool with the tool registry (with correct chat_id)
     tool_registry.register(ScheduleTool::new(task_queue.clone(), default_chat_id)).await;
 
+    // Initialize memory manager and register memory tool
+    let memory_path = config.runtime.memory_json_path.parent()
+        .unwrap_or(&std::path::PathBuf::from("~/.config/crustaison"))
+        .to_path_buf();
+    let memory_manager = std::sync::Arc::new(memory::MemoryManager::new(memory_path));
+    tool_registry.register(MemoryTool::new(memory_manager)).await;
+
     // Register email tool if configured
     if let Some(ref email_config) = config.email {
         let email_tool_config = tools::email::EmailConfig {
@@ -921,7 +931,7 @@ async fn main() -> Result<()> {
             let nexa_provider = NexaProvider::new(
                 "localhost".to_string(),
                 18181,
-                "unsloth/Qwen3-1.7B-GGUF".to_string(),
+                "unsloth/Qwen3-1.7B-GGUF:Q4_0".to_string(),
             );
             
             let heartbeat_config = HeartbeatConfig::default();
@@ -986,7 +996,7 @@ async fn main() -> Result<()> {
                 let vs = vector::VectorStore::new(vector_path);
                 let embedder = vector::Embedder::new(
                     "http://localhost:18181".to_string(),
-                    "Qwen/Qwen3-Embedding-0.6B-GGUF".to_string(),
+                    "Qwen/Qwen3-Embedding-0.6B-GGUF:F16".to_string(),
                 );
                 let rag_cfg = rag::RAGConfig {
                     enabled: true,
@@ -1002,8 +1012,52 @@ async fn main() -> Result<()> {
                 println!("🧠 RAG engine wired (Nexa Qwen3-Embedding)");
             }
 
+            // Register model switch tool (needs agent Arc, so registered after agent creation)
+            {
+                let switch_api_key = std::env::var("CRUSTAISON_API_KEY")
+                    .unwrap_or_else(|_| config.cognition.api_key.clone().unwrap_or_default());
+                tool_registry.register(ModelSwitchTool::new(
+                    agent.clone(),
+                    switch_api_key,
+                    config.cognition.model.clone(),
+                    config.cognition.base_url.clone(),
+                    "localhost".to_string(),
+                    18181,
+                )).await;
+                println!("🔀 Model switch tool registered");
+            }
+
+            // Rebuild system prompt now that all tools are registered
+            agent.lock().await.build_system_prompt().await;
+            println!("📋 System prompt rebuilt with all tools");
+
+            // Initialize the 5-model Coordinator
+            let coord_embedder = vector::Embedder::new(
+                "http://localhost:18181".to_string(),
+                "Qwen/Qwen3-Embedding-0.6B-GGUF:F16".to_string(),
+            );
+            let coord_vs = {
+                let d = dirs::data_dir()
+                    .unwrap_or_else(|| PathBuf::from("/home/sean/.local/share"))
+                    .join("crustaison")
+                    .join("coordinator_store");
+                vector::VectorStore::new(d)
+            };
+            let coordinator = std::sync::Arc::new(Coordinator::new(
+                agent.clone(),
+                NexaProvider::new(
+                    "localhost".to_string(),
+                    18181,
+                    "unsloth/Qwen3-1.7B-GGUF:Q4_0".to_string(),
+                ),
+                SubprocessProvider::new("unsloth/Qwen3.5-35B-A3B-GGUF:Q4_K_M".to_string()),
+                coord_embedder,
+                std::sync::Arc::new(tokio::sync::Mutex::new(coord_vs)),
+            ));
+            println!("\u{1F39B}  Coordinator ready (LOCAL/REASON routing, 35B subprocess)");
+
             // Pass the agent to telegram
-            telegram::run_telegram_bot(bot_token, agent.clone(), allowed_users).await;
+            telegram::run_telegram_bot(bot_token, agent.clone(), coordinator, allowed_users).await;
         }
         Commands::Check => {
             println!("✓ Crustaison configuration OK");
@@ -1397,7 +1451,7 @@ async fn main() -> Result<()> {
                 .join("crustaison");
             let vector_path = data_dir.join("vector_store");
             let mut vector_store = VectorStore::new(vector_path);
-            let embedder = Embedder::new("http://localhost:18181".to_string(), "Qwen/Qwen3-Embedding-0.6B-GGUF".to_string());
+            let embedder = Embedder::new("http://localhost:18181".to_string(), "Qwen/Qwen3-Embedding-0.6B-GGUF:F16".to_string());
             let rag_config = rag::RAGConfig {
                 enabled: true,
                 max_context_docs: 5,

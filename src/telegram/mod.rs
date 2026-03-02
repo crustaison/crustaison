@@ -4,6 +4,7 @@
 
 use base64::Engine as _;
 use crate::agent::Agent;
+use crate::coordinator::Coordinator;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -25,15 +26,17 @@ impl UserState {
 /// Telegram handler with per-user state
 pub struct TelegramHandler {
     agent: Arc<Mutex<Agent>>,
+    coordinator: Arc<Coordinator>,
     user_states: std::sync::Mutex<HashMap<i64, UserState>>,
     default_provider: String,
     bot_token: String,
 }
 
 impl TelegramHandler {
-    pub fn new(agent: Arc<Mutex<Agent>>, default_provider: &str, bot_token: String) -> Self {
+    pub fn new(agent: Arc<Mutex<Agent>>, coordinator: Arc<Coordinator>, default_provider: &str, bot_token: String) -> Self {
         Self {
             agent,
+            coordinator,
             user_states: std::sync::Mutex::new(HashMap::new()),
             default_provider: default_provider.to_string(),
             bot_token,
@@ -59,12 +62,8 @@ impl TelegramHandler {
             return self.handle_command(text, user_id).await;
         }
         
-        // Get LLM response
-        let mut agent = self.agent.lock().await;
-        match agent.chat(text).await {
-            Ok(response) => response,
-            Err(e) => format!("Error: {}", e),
-        }
+        // Route through coordinator (handles LOCAL vs REASON routing + RAG memory)
+        self.coordinator.process(text, user_id).await
     }
     
     async fn handle_command(&self, text: &str, user_id: i64) -> String {
@@ -237,6 +236,7 @@ fn parse_nexa_vlm_output(raw: &str, _is_default_prompt: bool) -> String {
 pub async fn run_telegram_bot(
     bot_token: String,
     agent: Arc<Mutex<Agent>>,
+    coordinator: Arc<Coordinator>,
     allowed_users: Vec<i64>,
 ) {
     let handler_token = bot_token.clone();
@@ -257,7 +257,7 @@ pub async fn run_telegram_bot(
     println!("Listening for messages...");
 
     let allowed = Arc::new(allowed_users);
-    let handler = Arc::new(TelegramHandler::new(agent, "minimax", handler_token));
+    let handler = Arc::new(TelegramHandler::new(agent, coordinator, "minimax", handler_token));
 
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let handler = handler.clone();

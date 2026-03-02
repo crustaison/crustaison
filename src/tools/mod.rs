@@ -19,6 +19,8 @@ pub mod plugin;
 pub mod http;
 pub mod gdrive;
 pub mod google;
+pub mod memory;
+pub mod model_switch;
 
 pub use tool::{Tool, ToolResult};
 pub use registry::ToolRegistry;
@@ -37,3 +39,5 @@ pub use plugin::{ScriptTool, PluginManifest, load_plugins};
 pub use http::{HttpTool, HttpConfig, HttpRequest, HttpResult};
 pub use gdrive::GoogleDriveTool;
 pub use google::GoogleTool;
+pub use memory::MemoryTool;
+pub use model_switch::ModelSwitchTool;
