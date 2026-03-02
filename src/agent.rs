@@ -242,9 +242,11 @@ impl Agent {
 
         let response = self.process_with_tools().await?;
         
-        // Save assistant response to session
-        if let (Some(sm), Some(sid)) = (&self.session_manager, &self.current_session_id) {
-            let _ = sm.add_message(sid, "assistant", &response).await;
+        // Save assistant response to session — never save empty responses
+        if !response.is_empty() {
+            if let (Some(sm), Some(sid)) = (&self.session_manager, &self.current_session_id) {
+                let _ = sm.add_message(sid, "assistant", &response).await;
+            }
         }
         
         Ok(response)
@@ -255,8 +257,13 @@ impl Agent {
         let mut recent_calls: Vec<String> = Vec::new(); // Loop detection
         
         loop {
+            // Filter empty assistant messages before sending — they corrupt MiniMax context
+            let clean_history: Vec<ChatMessage> = self.history.iter()
+                .filter(|m| !(m.role == "assistant" && m.content.trim().is_empty()))
+                .cloned()
+                .collect();
             let response = self.provider.chat(
-                self.history.clone(),
+                clean_history,
                 Some(self.system_prompt.clone()),
             ).await.context("Failed to get LLM response")?;
             
@@ -368,6 +375,12 @@ impl Agent {
                 continue;
             }
             
+            // Guard: never push empty content to history
+            if content.trim().is_empty() {
+                tracing::warn!("LLM returned empty response — not storing in history");
+                return Ok("I ran into an issue generating a response. Please try again.".to_string());
+            }
+
             self.history.push(ChatMessage {
                 role: "assistant".to_string(),
                 content: content.clone(),

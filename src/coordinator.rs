@@ -70,10 +70,13 @@ impl Coordinator {
     /// Route: ask 1.7B /no_think to classify as LOCAL or REASON
     async fn route(&self, input: &str) -> String {
         let routing_prompt = format!(
-            "Classify this request into exactly one word — LOCAL or REASON.\n\
-             LOCAL = conversation, questions, tool use, commands, tasks, reminders, anything quick\n\
-             REASON = complex multi-step analysis, detailed research reports, long writing tasks\n\
-             \nRequest: {}\n\nOne word only:",
+            "Output LOCAL or REASON. Default to LOCAL unless the request is clearly a long, \
+             complex analytical task (detailed research, multi-page writing, deep technical analysis).\n\
+             LOCAL: everything else — conversation, questions, tools, commands, memory, preferences, \
+             short tasks, anything under ~3 sentences, anything referencing prior conversation.\n\
+             REASON: only when the user explicitly asks for deep analysis, detailed reports, \
+             or complex multi-step reasoning that would take many paragraphs.\n\
+             \nRequest: {}\n\nOne word:",
             input
         );
 
@@ -101,30 +104,20 @@ impl Coordinator {
     }
 
     /// Dispatch to existing agent (handles tools + MiniMax conversation)
-    async fn dispatch_agent(&self, input: &str, rag_context: &str) -> String {
-        let full_input = if rag_context.is_empty() {
-            input.to_string()
-        } else {
-            format!("{}\n\n{}", rag_context, input)
-        };
-
+    async fn dispatch_agent(&self, input: &str, _rag_context: &str) -> String {
+        // Pass input directly — the agent already has its own RAG engine wired.
+        // Prepending rag_context here caused "## Relevant Memory" to leak into responses.
         let mut agent = self.agent.lock().await;
         agent
-            .chat(&full_input)
+            .chat(input)
             .await
             .unwrap_or_else(|e| format!("Error: {}", e))
     }
 
     /// Dispatch to 35B subprocess for deep reasoning
-    async fn dispatch_reason(&self, input: &str, rag_context: &str) -> String {
-        let system_prompt = if rag_context.is_empty() {
-            "You are Crusty, a thoughtful AI assistant. Provide thorough, well-reasoned analysis.".to_string()
-        } else {
-            format!(
-                "You are Crusty, a thoughtful AI assistant. Provide thorough, well-reasoned analysis.\n\n{}",
-                rag_context
-            )
-        };
+    async fn dispatch_reason(&self, input: &str, _rag_context: &str) -> String {
+        // 35B has no conversation history — don't inject RAG context as it just gets echoed back.
+        let system_prompt = "You are Crusty, a thoughtful AI assistant. Provide thorough, well-reasoned analysis. Be direct and concise.".to_string();
 
         let messages = vec![ChatMessage {
             role: "user".to_string(),
