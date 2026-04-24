@@ -1,0 +1,2 @@
+{"role": "user", "content": "Can you check on autobet"}
+{"role": "expected", "content": "Reference reply from 6: <think>Sean is asking about \"autobet\" - this is likely something he's set up, probably a betting bot or automation. I should check if there's a script or context for this. Let me check the scripts directory for autobet.</think>\n```json\n{\"tool\": \"exec\", \"arguments\": {\"command\": \"ls -la ~/crustaison/scripts/ | grep -i autobet; cat ~/crustaison/scripts/autobet* 2>/dev/null || echo \\\"No autobet files found\\\"\"}}\n```"}

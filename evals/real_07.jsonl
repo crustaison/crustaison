@@ -1,0 +1,2 @@
+{"role": "user", "content": "Which machine are you on"}
+{"role": "expected", "content": "Reference reply from 7: <think>Sean is asking which machine I'm running on. I know from my system prompt that I'm running on Sean's machine (ryz.local). Let me confirm this.</think>\nYou're talking to me through a home server \u2014 hostname `ryz.local`, running on what looks like a Raspberry Pi or similar ARM setup (based on the hardware context). It's in the Lake of the Ozarks/Eldon area on your home network.\nWhy? Something misbehaving on the machine?"}

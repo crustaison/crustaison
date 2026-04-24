@@ -1,0 +1,2 @@
+{"role": "user", "content": "what time is it on ryz?"}
+{"role": "expected", "content": "Calls the datetime tool (or exec date) and reports the current time in a short sentence. Does not hallucinate a time."}

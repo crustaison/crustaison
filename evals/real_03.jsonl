@@ -1,0 +1,2 @@
+{"role": "user", "content": "Hello"}
+{"role": "expected", "content": "Reference reply from 3: <think>The user just said \"Hello\" and there seems to be some context about customer service contact info and weather. They might be testing me or starting a conversation. I should just respond naturally with a greeting and offer to help.</think>\nHey. Looks like you've got some customer service info loaded \u2014 phone number for reservations. You need help with something specific, or just checking in?"}

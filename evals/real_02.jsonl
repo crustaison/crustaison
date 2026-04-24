@@ -1,0 +1,2 @@
+{"role": "user", "content": "update rosters and released"}
+{"role": "expected", "content": "Reference reply from 2: <think>\nThe user wants me to update both rosters and released inmates. Let me run the roster scraper.\n</think>\nDone. Roster and released both updated for Miller County."}

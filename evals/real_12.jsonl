@@ -1,0 +1,2 @@
+{"role": "user", "content": "Is it going to rain today"}
+{"role": "expected", "content": "Reference reply from 12: <think>The user wants to know about rain today. I have a lake conditions tool that provides weather. Let me use it.</think>\nNo rain in sight \u2014 sunny with highs in the 80s, light southerly breeze. Good lake day."}

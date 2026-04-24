@@ -1,0 +1,2 @@
+{"role": "user", "content": "Is the lake full yet"}
+{"role": "expected", "content": "Reference reply from 5: <think>The lake data showed level at 657 ft MSL with \"normal \u2014 3.0 ft below full pool\". Full pool is typically around 660 ft. So the lake is not full yet, it's 3 feet below full pool.\nLet me just answer directly.</think>\nNot quite \u2014 3 feet below full pool. Sitting at 657 ft, full is 660 ft. Getting closer but we're still in the normal range. Spring rains will fill it eventually."}

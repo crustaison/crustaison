@@ -1,0 +1,2 @@
+{"role": "user", "content": "What\u2019s the lake doing"}
+{"role": "expected", "content": "Reference reply from 4: <think>The user wants lake conditions. Let me use the lake tool.</think>\n```json\n{\"tool\": \"lake\", \"arguments\": {}}\n```"}

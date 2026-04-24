@@ -1,0 +1,2 @@
+{"role": "user", "content": "Can you tell me which emails you can access"}
+{"role": "expected", "content": "Reference reply from 9: <think>The user is asking which emails I can access. Based on my system prompt, I have access to crustaison@gmail.com through the google tools. Let me list what I'm configured to access.</think>\nI can access **crustaison@gmail.com** \u2014 that's my configured account.\nI can search, read, and send through that Gmail. Want me to check the inbox or search for something specific?"}
