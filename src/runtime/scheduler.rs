@@ -18,6 +18,8 @@ pub struct ScheduledTask {
     pub status: TaskStatus,
     pub result: Option<String>,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

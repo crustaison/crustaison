@@ -33,6 +33,13 @@ mod rag;
 mod coordinator;
 mod plugins;
 mod webhooks;
+mod antennae;
+mod regrowth;
+mod telemetry;
+mod molts;
+mod judge;
+mod destructive_guard;
+mod compact;
 
 use authority::gateway::{Gateway, GatewayMessage, NormalizedMessage};
 use authority::executor::{Executor, Command, ExecutionResult};
@@ -622,6 +629,10 @@ async fn main() -> Result<()> {
         .or_else(|| std::env::var("CRUSTAISON_API_KEY").ok())
         .expect("No API key configured. Set cognition.api_key in config.toml or CRUSTAISON_API_KEY env var");
 
+    // Keep a copy of the key for second-use sites (destructive-guard, compact tool)
+    // before the main provider consumes it.
+    let api_key_for_guards = api_key.clone();
+
     let provider = MiniMaxProvider::new(
         api_key,
         config.cognition.model.clone(),
@@ -688,6 +699,30 @@ async fn main() -> Result<()> {
         tool_registry.register(plugin).await;
     }
 
+    // Molts — named reusable recipes under ~/.config/crustaison/molts/
+    let molts_dir = config.cognition.doctrine_path.parent()
+        .unwrap_or(&std::path::PathBuf::from("~/.config/crustaison"))
+        .join("molts");
+    let molt_registry = std::sync::Arc::new(molts::MoltRegistry::new(molts_dir));
+    match molt_registry.scan().await {
+        Ok(n) => println!("📚 Loaded {} molt(s)", n),
+        Err(e) => tracing::warn!("molt scan failed: {}", e),
+    }
+    tool_registry.register(molts::RecallMoltTool::new(molt_registry.clone())).await;
+
+    // Doctrine compaction tool — uses a dedicated MiniMax provider handle so
+    // it doesn't contend with the main Agent's provider lock.
+    {
+        let compact_provider: std::sync::Arc<dyn providers::provider::Provider> =
+            std::sync::Arc::new(MiniMaxProvider::new(
+                api_key_for_guards.clone(),
+                config.cognition.model.clone(),
+                config.cognition.base_url.clone(),
+            ));
+        tool_registry.register(compact::CompactDoctrineTool::new(compact_provider)).await;
+        println!("🗜  compact_doctrine tool registered");
+    }
+
     // Initialize session manager for persistence
     let session_db = config.cognition.memory_db_path.to_string_lossy().to_string();
     let session_manager = match SessionManager::new(&session_db).await {
@@ -716,8 +751,8 @@ async fn main() -> Result<()> {
     // Initialize agent with LLM, tools, executor, ledger, and session manager
     let agent = std::sync::Arc::new(tokio::sync::Mutex::new(
         Agent::with_session_manager(
-            provider, 
-            doctrine_loader.as_ref().clone(), 
+            provider,
+            doctrine_loader.as_ref().clone(),
             Some(tool_registry.clone()),
             Some(executor.clone()),
             Some(git_ledger.clone()),
@@ -726,6 +761,39 @@ async fn main() -> Result<()> {
         ).await
             .expect("Failed to initialize agent")
     ));
+
+    // Register antenna listeners (telemetry + judge + destructive guard).
+    {
+        let agent_g = agent.lock().await;
+        let bus = agent_g.antennae();
+        drop(agent_g);
+
+        let telemetry_listener = std::sync::Arc::new(
+            telemetry::TelemetryListener::new(telemetry::TelemetryListener::default_path())
+        );
+        bus.register(telemetry_listener).await;
+        println!("📡 Tool-call telemetry listener registered");
+
+        let judge_listener = std::sync::Arc::new(
+            judge::JudgeListener::new(judge::JudgeListener::default_path())
+        );
+        bus.register(judge_listener).await;
+        println!("⚖️  LLM-judge listener registered");
+
+        let guard_listener = std::sync::Arc::new(
+            destructive_guard::DestructiveGuardListener::new()
+                .with_api_key(api_key_for_guards.clone())
+        );
+        bus.register(guard_listener).await;
+        println!("🛡  Destructive-op guard registered");
+    }
+
+    // Wire the molt registry into the agent so its system prompt lists molts.
+    {
+        let mut agent_g = agent.lock().await;
+        agent_g.set_molt_registry(molt_registry.clone());
+        agent_g.build_system_prompt().await;
+    }
 
     let args = Args::parse();
 
@@ -1056,6 +1124,31 @@ async fn main() -> Result<()> {
             ));
             println!("\u{1F39B}  Coordinator ready (LOCAL/REASON routing, 35B subprocess)");
 
+
+            // iMessage HTTP bridge on port 18791
+            {
+                #[derive(serde::Deserialize)]
+                struct ImsgReq { from: String, message: String }
+                #[derive(serde::Serialize)]
+                struct ImsgResp { reply: String }
+
+                let imsg_coord = coordinator.clone();
+                tokio::spawn(async move {
+                    let route = warp::post()
+                        .and(warp::path("imessage"))
+                        .and(warp::body::json::<ImsgReq>())
+                        .then(move |req: ImsgReq| {
+                            let coord = imsg_coord.clone();
+                            async move {
+                                let reply = coord.process(&req.message, 88888_i64).await;
+                                warp::reply::json(&ImsgResp { reply })
+                            }
+                        });
+                    let addr: std::net::SocketAddr = ([0, 0, 0, 0], 18791).into();
+                    println!("iMessage bridge on http://{}", addr);
+                    warp::serve(route).run(addr).await;
+                });
+            }
             // Pass the agent to telegram
             telegram::run_telegram_bot(bot_token, agent.clone(), coordinator, allowed_users).await;
         }

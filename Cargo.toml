@@ -48,6 +48,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # UUID
 uuid = { version = "1", features = ["v4"] }
 
+# Fuzzy string matching (tool-name resolution)
+strsim = "0.11"
+
 # MD5 for ledger hashing
 md5 = "0.7"
 base64 = "0.22"

@@ -140,83 +140,66 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
-/// Real embedding generator using Nexa API
+/// Real embedding generator using llama-cpp-python subprocess
 pub struct Embedder {
-    api_endpoint: String,
-    model: String,
+    script_path: String,
 }
 
 impl Embedder {
-    pub fn new(api_endpoint: String, model: String) -> Self {
-        Self { api_endpoint, model }
+    pub fn new(_api_endpoint: String, _model: String) -> Self {
+        Self {
+            script_path: "/home/sean/crustaison/scripts/embed.py".to_string(),
+        }
     }
-    
-    /// Generate embedding for text using Nexa API
+
+    /// Generate embedding for text via Python subprocess
     pub async fn embed(&self, text: &str) -> Vec<f32> {
-        let client = reqwest::Client::new();
-        
-        let payload = serde_json::json!({
-            "model": self.model,
-            "input": [text]
-        });
-        
-        match client.post(&format!("{}/v1/embeddings", self.api_endpoint))
-            .json(&payload)
-            .send()
-            .await {
-                Ok(response) => {
-                    if let Ok(json) = response.json::<serde_json::Value>().await {
-                        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
-                            if let Some(first) = data.first() {
-                                if let Some(embedding) = first.get("embedding").and_then(|e| e.as_array()) {
-                                    return embedding.iter()
-                                        .filter_map(|v| v.as_f64().map(|f| f as f32))
-                                        .collect();
-                                }
-                            }
-                        }
-                    }
-                    // Fallback: return zero vector on parse failure
-                    vec![0.0; 1024]
+        use tokio::process::Command;
+        use tokio::io::AsyncWriteExt;
+
+        let mut child = match Command::new("python3")
+            .arg(&self.script_path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return vec![0.0; 1024],
+        };
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes()).await;
+        }
+
+        let output = match child.wait_with_output().await {
+            Ok(o) => o,
+            Err(_) => return vec![0.0; 1024],
+        };
+
+        if !output.status.success() {
+            return vec![0.0; 1024];
+        }
+
+        match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+            Ok(json) => {
+                if let Some(arr) = json.get("embedding").and_then(|e| e.as_array()) {
+                    return arr.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect();
                 }
-                Err(_) => {
-                    // Fallback: return zero vector on network failure
-                    vec![0.0; 1024]
-                }
+                vec![0.0; 1024]
             }
+            Err(_) => vec![0.0; 1024],
+        }
     }
     
-    /// Generate embeddings for multiple texts
+    /// Generate embeddings for multiple texts (calls embed() sequentially)
     pub async fn embed_batch(&self, texts: &[&str]) -> Vec<Vec<f32>> {
-        let client = reqwest::Client::new();
-        
-        let payload = serde_json::json!({
-            "model": self.model,
-            "input": texts
-        });
-        
-        match client.post(&format!("{}/v1/embeddings", self.api_endpoint))
-            .json(&payload)
-            .send()
-            .await {
-                Ok(response) => {
-                    if let Ok(json) = response.json::<serde_json::Value>().await {
-                        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
-                            return data.iter()
-                                .filter_map(|item| {
-                                    item.get("embedding").and_then(|e| e.as_array()).map(|emb| {
-                                        emb.iter()
-                                            .filter_map(|v| v.as_f64().map(|f| f as f32))
-                                            .collect()
-                                    })
-                                })
-                                .collect();
-                        }
-                    }
-                    // Fallback
-                    vec![]
-                }
-                Err(_) => vec![]
-            }
+        let mut results = Vec::new();
+        for text in texts {
+            results.push(self.embed(text).await);
+        }
+        results
     }
 }

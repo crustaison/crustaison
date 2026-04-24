@@ -233,9 +233,31 @@ impl HeartbeatRunner {
                 match result {
                     Ok(output) => {
                         let _ = queue.complete_task(&task.id, output.clone()).await;
-                        // Send result to Telegram
-                        let msg = format!("⏰ Scheduled Task Complete\n\n📋 {}\n\n{}", task.description, output);
-                        self.send_to_chat(task.chat_id, &msg).await;
+                        // Re-queue if recurring
+                        if let Some(interval) = task.interval_secs {
+                            let next = chrono::Utc::now() + chrono::Duration::seconds(interval as i64);
+                            let base_id = task.id.trim_end_matches(|c: char| c.is_ascii_digit() || c == '-').to_string();
+                            let new_task = crate::runtime::scheduler::ScheduledTask {
+                                id: format!("{}-{}", base_id, next.timestamp()),
+                                action: task.action.clone(),
+                                due_at: next,
+                                created_at: chrono::Utc::now(),
+                                chat_id: task.chat_id,
+                                status: crate::runtime::scheduler::TaskStatus::Pending,
+                                result: None,
+                                description: task.description.clone(),
+                                interval_secs: Some(interval),
+                            };
+                            let _ = queue.add(new_task).await;
+                        } else {
+                            // One-shot: send completion to Telegram
+                            let msg = format!("⏰ Scheduled Task Complete
+
+📋 {}
+
+{}", task.description, output);
+                            self.send_to_chat(task.chat_id, &msg).await;
+                        }
                     }
                     Err(e) => {
                         let _ = queue.fail_task(&task.id, e.to_string()).await;

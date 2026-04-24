@@ -12,6 +12,10 @@ pub struct Doctrine {
     pub soul: Option<String>,
     pub agents: Option<String>,
     pub principles: Option<String>,
+    pub memory: Option<String>,
+    /// Ralph-loop learnings log: one-line lessons appended per completed molt.
+    /// Loaded from MOLTLOG.md alongside the other doctrine files.
+    pub moltlog: Option<String>,
 }
 
 /// Loader for doctrine documents
@@ -31,10 +35,14 @@ impl DoctrineLoader {
         let agents_path = self.doctrine_path.join("agents.md");
         let principles_path = self.doctrine_path.join("principles.md");
         
+        let memory_path = self.doctrine_path.join("memory.md");
+        let moltlog_path = self.doctrine_path.join("MOLTLOG.md");
         Ok(Doctrine {
             soul: self.read_if_exists(&soul_path).await,
             agents: self.read_if_exists(&agents_path).await,
             principles: self.read_if_exists(&principles_path).await,
+            memory: self.read_if_exists(&memory_path).await,
+            moltlog: self.read_if_exists(&moltlog_path).await,
         })
     }
     
