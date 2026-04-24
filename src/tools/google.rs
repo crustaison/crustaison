@@ -372,23 +372,41 @@ impl GoogleTool {
             Some(r) => r,
             None => return ToolResult::err("'range' is required for sheets_write"),
         };
-        let values = match args.get("values").and_then(|v| v.as_str()) {
+        let values_raw = match args.get("values") {
             Some(v) => v,
             None => return ToolResult::err("'values' is required for sheets_write"),
         };
+        // Accept values as either a JSON array or a string
+        let values_json_str: String;
+        let values: &str = if let Some(s) = values_raw.as_str() {
+            s
+        } else {
+            values_json_str = values_raw.to_string();
+            &values_json_str
+        };
 
-        // values is tab-separated, newline-delimited rows. Pass each row as a separate arg.
-        let mut gog_args = vec![
-            "sheets".to_string(), "update".to_string(),
-            spreadsheet_id.to_string(), range.to_string(),
-            "-a".to_string(), account.to_string(),
-        ];
-        // Pass rows as positional args (each row is tab-delimited)
-        for row in values.split('\n') {
-            if !row.trim().is_empty() {
-                gog_args.push(row.to_string());
+        // If values looks like a JSON array, use --values-json (handles any size)
+        // Otherwise fall back to positional args (newline-delimited, tab-separated rows)
+        let gog_args = if values.trim_start().starts_with('[') {
+            vec![
+                "sheets".to_string(), "update".to_string(),
+                spreadsheet_id.to_string(), range.to_string(),
+                "-a".to_string(), account.to_string(),
+                format!("--values-json={}", values),
+            ]
+        } else {
+            let mut a = vec![
+                "sheets".to_string(), "update".to_string(),
+                spreadsheet_id.to_string(), range.to_string(),
+                "-a".to_string(), account.to_string(),
+            ];
+            for row in values.split('\n') {
+                if !row.trim().is_empty() {
+                    a.push(row.to_string());
+                }
             }
-        }
+            a
+        };
 
         match self.gog(gog_args).await {
             Ok(out) => ToolResult::ok(format!("Sheets updated. {}", out.trim())),
@@ -405,21 +423,38 @@ impl GoogleTool {
             Some(r) => r,
             None => return ToolResult::err("'range' is required for sheets_append"),
         };
-        let values = match args.get("values").and_then(|v| v.as_str()) {
+        let values_raw = match args.get("values") {
             Some(v) => v,
             None => return ToolResult::err("'values' is required for sheets_append"),
         };
+        let values_json_str: String;
+        let values: &str = if let Some(s) = values_raw.as_str() {
+            s
+        } else {
+            values_json_str = values_raw.to_string();
+            &values_json_str
+        };
 
-        let mut gog_args = vec![
-            "sheets".to_string(), "append".to_string(),
-            spreadsheet_id.to_string(), range.to_string(),
-            "-a".to_string(), account.to_string(),
-        ];
-        for row in values.split('\n') {
-            if !row.trim().is_empty() {
-                gog_args.push(row.to_string());
+        let gog_args = if values.trim_start().starts_with('[') {
+            vec![
+                "sheets".to_string(), "append".to_string(),
+                spreadsheet_id.to_string(), range.to_string(),
+                "-a".to_string(), account.to_string(),
+                format!("--values-json={}", values),
+            ]
+        } else {
+            let mut a = vec![
+                "sheets".to_string(), "append".to_string(),
+                spreadsheet_id.to_string(), range.to_string(),
+                "-a".to_string(), account.to_string(),
+            ];
+            for row in values.split('\n') {
+                if !row.trim().is_empty() {
+                    a.push(row.to_string());
+                }
             }
-        }
+            a
+        };
 
         match self.gog(gog_args).await {
             Ok(out) => ToolResult::ok(format!("Rows appended. {}", out.trim())),

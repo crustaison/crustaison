@@ -45,6 +45,53 @@ impl ToolRegistry {
         let tools = self.tools.read().await;
         tools.contains_key(name)
     }
+
+    /// Resolve a possibly-misspelled or hallucinated tool name to a real one.
+    ///
+    /// Lookup order:
+    ///   1. Exact match
+    ///   2. Alias table (common model hallucinations)
+    ///   3. Case-insensitive substring match (either direction)
+    ///   4. Jaro-Winkler similarity >= 0.78
+    pub async fn resolve(&self, name: &str) -> Option<String> {
+        let tools = self.tools.read().await;
+
+        if tools.contains_key(name) {
+            return Some(name.to_string());
+        }
+
+        let alias: Option<&str> = match name {
+            "gmail_fetch_unread" | "gmail_read" | "gmail_inbox" => Some("gmail"),
+            "shell" | "run_bash" | "run_shell" | "execute" => Some("exec"),
+            "fs" | "fs_read" | "file_read" | "read_file" => Some("files"),
+            "search" | "web" => Some("web_search"),
+            _ => None,
+        };
+        if let Some(a) = alias {
+            if tools.contains_key(a) {
+                return Some(a.to_string());
+            }
+        }
+
+        let lname = name.to_lowercase();
+        for k in tools.keys() {
+            let lk = k.to_lowercase();
+            if lk.contains(&lname) || lname.contains(&lk) {
+                return Some(k.clone());
+            }
+        }
+
+        let best = tools.keys()
+            .map(|k| (k.clone(), strsim::jaro_winkler(k, name)))
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some((k, score)) = best {
+            if score >= 0.78 {
+                return Some(k);
+            }
+        }
+
+        None
+    }
     
     /// Get tool descriptions
     pub async fn descriptions(&self) -> Vec<(String, String, serde_json::Value)> {

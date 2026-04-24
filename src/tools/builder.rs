@@ -3,6 +3,8 @@
 //! Creates and configures the tool registry with all available tools.
 
 use crate::tools::{ToolRegistry, ExecTool, FilesTool, WebTool, BrowserTool, ImageTool, ScheduleTool, HttpTool, GoogleDriveTool, GoogleTool};
+use crate::tools::roster::RosterTool;
+use crate::tools::lake::LakeTool;
 use std::sync::Arc;
 
 /// Create the default tool registry with all standard tools
@@ -18,6 +20,8 @@ pub async fn create_tool_registry() -> ToolRegistry {
     registry.register(HttpTool::new()).await;
     registry.register(GoogleDriveTool::new("gdrive-crusty")).await;
     registry.register(GoogleTool::new()).await;
+    registry.register(RosterTool).await;
+    registry.register(LakeTool).await;
     // Note: ScheduleTool is added separately in main.rs with chat_id
     
     registry

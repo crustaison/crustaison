@@ -21,6 +21,8 @@ pub mod gdrive;
 pub mod google;
 pub mod memory;
 pub mod model_switch;
+pub mod roster;
+pub mod lake;
 
 pub use tool::{Tool, ToolResult};
 pub use registry::ToolRegistry;

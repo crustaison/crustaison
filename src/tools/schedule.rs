@@ -115,7 +115,9 @@ impl Tool for ScheduleTool {
         let desc_lower = description.to_lowercase();
 
         // Determine due_at: prefer absolute 'time' param, fall back to delay_minutes
+        let _ = tracing::info!("DEBUG schedule tool received args: {:?}", args);
         let due_at = if let Some(time_str) = args.get("time").and_then(|v| v.as_str()) {
+            let _ = tracing::info!("DEBUG time_str received: {}", time_str);
             // Parse ISO datetime as Central Time (UTC-6 CST / UTC-5 CDT)
             // We treat naive datetimes as CST (UTC-6) since that's the user's timezone
             if let Ok(naive) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%dT%H:%M:%S")
@@ -186,6 +188,7 @@ impl Tool for ScheduleTool {
             status: TaskStatus::Pending,
             result: None,
             description: description.to_string(),
+            interval_secs: None,
         };
 
         match self.queue.add(task).await {
