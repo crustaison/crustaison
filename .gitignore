@@ -12,3 +12,5 @@ config.toml
 .env*
 credentials*
 *secret*
+scripts/__pycache__/
+__pycache__/
